@@ -251,6 +251,29 @@ export class MiniflareEnvRunner extends BaseEnvRunner {
         : resolved instanceof URL
           ? resolved.href
           : resolved.url;
+    if (typeof resolved !== "string" && !(resolved instanceof URL)) {
+      // Copy public fields: srvx NodeRequest does not share native Request's private state.
+      const request = new Request(
+        new Request(url, {
+          method: resolved.method,
+          headers: resolved.headers,
+          body: resolved.body,
+          redirect: resolved.redirect,
+          signal: resolved.signal,
+          duplex: "half",
+        } as RequestInit),
+        init,
+      );
+      init = {
+        ...init,
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        redirect: request.redirect,
+        signal: request.signal,
+        duplex: "half",
+      } as RequestInit;
+    }
     const res = await this.#miniflare.dispatchFetch(url, init);
     // workerd returns a Response from a different realm — convert to a standard Response
     // so that `instanceof Response` checks work in the caller's context.
