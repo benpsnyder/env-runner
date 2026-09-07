@@ -19,10 +19,23 @@ const expected = {
 
 describe("Miniflare Request inputs", () => {
   let runner: MiniflareEnvRunner;
+  let forwarded: RequestInit | undefined;
   beforeAll(async () => {
     runner = new MiniflareEnvRunner({
       name: "request-input",
-      miniflare,
+      miniflare: {
+        ...miniflare,
+        Miniflare: class extends miniflare.Miniflare {
+          constructor(options: ConstructorParameters<typeof miniflare.Miniflare>[0]) {
+            super(options);
+            const dispatch = this.dispatchFetch;
+            this.dispatchFetch = (input, init) => {
+              forwarded = init as RequestInit;
+              return dispatch(input, init);
+            };
+          }
+        },
+      },
       data: { entry: fileURLToPath(new URL("./fixtures/app-request.mjs", import.meta.url)) },
     });
     await runner.waitForReady();
@@ -44,6 +57,22 @@ describe("Miniflare Request inputs", () => {
       expected,
     );
   });
+  test("preserves a non-default referrer and its override", async () => {
+    const request = new Request(url, {
+      referrer: "http://localhost/source",
+      referrerPolicy: "unsafe-url",
+    });
+    await (await runner.fetch(request)).text();
+    expect(forwarded?.referrer).toBe("http://localhost/source");
+    expect(forwarded?.referrerPolicy).toBe("unsafe-url");
+    const override = new Request(url, {
+      referrer: "http://localhost/source",
+      referrerPolicy: "unsafe-url",
+    });
+    await (await runner.fetch(override, { referrer: "http://localhost/override" })).text();
+    expect(forwarded?.referrer).toBe("http://localhost/override");
+  });
+
   test("honors explicit overrides and ignores undefined fields", async () => {
     expect(
       await (
